@@ -52,4 +52,6 @@ jobs:
           gh release view latest >/dev/null 2>&1 || \
             gh release create latest --title "Latest build" --notes "Newest IPA from main."
           gh release upload latest ABIHours.ipa --clobber
-          gh release edit latest --notes "Built $(TZ=America/Los_Angeles date '+%a %b %-d, %-I:%M %p') from ${GITHUB_SHA::7}."
+          # Just a "built at" note; never fail the build over it.
+          gh release edit latest --notes "Built $(TZ=America/Los_Angeles date '+%a %b %-d, %-I:%M %p') from ${GITHUB_SHA::7}." \
+            || echo "Couldn't update release notes (the IPA is uploaded)."

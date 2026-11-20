@@ -10,7 +10,9 @@ Tracks your hours at work without ever opening the app. Shows up right next to A
 
 1. Create a new private GitHub repo and push this folder to `main`.
 2. **Actions → Build IPA** runs automatically (or press *Run workflow*).
-3. When it's green, download the **ABIHours-ipa** artifact (a zip containing `ABIHours.ipa`).
+3. When it's green, the newest IPA is always at this link (paste it into Signulous):
+   https://github.com/mcvindleswebsite/abi-hours/releases/latest/download/ABIHours.ipa
+   The direct link only works while the repo is public. The **ABIHours-ipa** artifact on the run page has the same file.
 4. Sideload it the same way as your other IPAs. The IPA is unsigned; your sideloader signs it.
 5. Open the app once (so Shortcuts and the Action button can see its actions) and allow notifications.
 

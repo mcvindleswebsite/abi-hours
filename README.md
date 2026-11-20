@@ -4,7 +4,7 @@ Tracks your hours at work without ever opening the app. Shows up right next to A
 
 - **Clock in/out:** scan your ID at the ABI scanner, then tap your phone to the NFC sticker on the back of your ID. It runs in the background: just a quick "Clocked in for Martin Lawrence · 4:02 PM" banner, no timer on screen. Tap again when you leave.
 - **Lunch:** press and hold the Action button (about a second). You get a heads-up 5 minutes before lunch ends and a reminder at 30, both with an **End lunch** button. Press again to end lunch.
-- **Schedule:** ⋯ → Paste schedule. Paste the plain-text schedule and every shift gets labeled with that day's event automatically. The main screen goes **week → events → your hours for each event**.
+- **Schedule:** ⋯ → Add schedule → pick screenshots of ABI's Schedule screen (read on the phone, no Claude step needed), or paste text. Every shift gets labeled with that day's event automatically ("TA- MARTIN LAWRENCE" → "Martin Lawrence"). The main screen goes **week → events → your hours for each event**.
 
 ## Build the IPA (GitHub Actions)
 
@@ -32,7 +32,9 @@ The same steps are in the app under ⚙︎ → *Set up the badge sticker & Actio
 
 ## Schedule format
 
-The parser accepts most plain-text layouts, for example:
+ABI's own Schedule screen is read as-is: date, shift time, area ("ENTIRE ARENA") and the "TA- …" event line, with "Confirmed" ignored. Screenshots are read with Apple's on-device text recognition, so a cut-off card at the bottom of one screenshot is fine if the next one shows it.
+
+The parser also accepts most plain-text layouts, for example:
 
 ```
 Thu 11/20 — Martin Lawrence — call 5:00 PM

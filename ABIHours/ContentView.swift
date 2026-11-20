@@ -119,7 +119,7 @@ struct ContentView: View {
                 Button {
                     sheet = .paste
                 } label: {
-                    Label("Paste schedule", systemImage: "doc.on.clipboard")
+                    Label("Add schedule", systemImage: "calendar.badge.plus")
                 }
                 Button {
                     sheet = .schedule
@@ -225,7 +225,7 @@ struct WeekDisclosure: View {
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
             if group.items.isEmpty {
-                Text("Nothing yet. Paste your schedule from the ⋯ menu.")
+                Text("Nothing yet. Add your schedule from the ⋯ menu.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }

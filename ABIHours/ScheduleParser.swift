@@ -21,8 +21,14 @@ enum ScheduleParser {
         var currentDay: Date?
         var pending: Int?   // event whose name should come from the next line
         var last: Int?      // latest event; a time on its own line attaches here
+        var soft: Int?      // event named from a plain line ("ENTIRE ARENA") that a "TA- NAME" line can replace
 
         for raw in text.components(separatedBy: .newlines) {
+            // "---" between screenshots or sections: start fresh.
+            if matches(rule, raw) {
+                currentDay = nil; pending = nil; last = nil; soft = nil
+                continue
+            }
             let line = stripMarkdown(raw)
             if line.trimmingCharacters(in: .whitespaces).isEmpty { continue }
 
@@ -38,20 +44,22 @@ enum ScheduleParser {
                 }
 
                 let prefixName = clean(prefix, leadingWeekday: true, trailingWeekday: true)
-                let segmentNames = segments.enumerated().map { i, seg in
+                var segmentNames = segments.enumerated().map { i, seg in
                     clean(seg, leadingWeekday: true, trailingWeekday: i < segments.count - 1)
                 }
                 // "Thu 11/20: Martin Lawrence, Fri 11/21: Reign" → one name per date.
                 let perDate = hits.count > 1 && prefixName.isEmpty && segmentNames.allSatisfy { !$0.isEmpty }
-                let shared = ([prefixName] + segmentNames).filter { !$0.isEmpty }.joined(separator: " ")
-                let sharedLower = shared.lowercased()
+                let rawShared = ([prefixName] + segmentNames).filter { !$0.isEmpty }.joined(separator: " ")
+                let sharedLower = rawShared.lowercased()
 
                 if !perDate {
-                    if isHeader(sharedLower) || (hits.count > 1 && shared.isEmpty) || isDayOff(sharedLower) {
-                        currentDay = nil; pending = nil; last = nil
+                    if isHeader(sharedLower) || (hits.count > 1 && rawShared.isEmpty) || isDayOff(sharedLower) {
+                        currentDay = nil; pending = nil; last = nil; soft = nil
                         continue
                     }
                 }
+                let (shared, sharedCoded) = finalName(rawShared)
+                segmentNames = segmentNames.map { finalName($0).name }
 
                 for (i, hit) in hits.enumerated() {
                     let name = perDate ? segmentNames[i] : shared
@@ -62,13 +70,14 @@ enum ScheduleParser {
                 currentDay = hits.count == 1 ? hits[0].day : nil
                 last = results.count - 1
                 pending = (hits.count == 1 && shared.isEmpty) ? last : nil
+                soft = (hits.count == 1 && !shared.isEmpty && !sharedCoded) ? last : nil
                 continue
             }
 
             // A line with no date belongs to the last date line.
             guard let day = currentDay else { continue }
             let time = firstTime(in: line, on: day, calendar: calendar)
-            let name = clean(line, leadingWeekday: false, trailingWeekday: false)
+            let (name, isCoded) = finalName(clean(line, leadingWeekday: false, trailingWeekday: false))
             if name.isEmpty {
                 if let t = time, let i = last, results[i].callTime == nil { results[i].callTime = t }
                 continue
@@ -77,18 +86,24 @@ enum ScheduleParser {
             if isNote(lower) || isHeader(lower) { continue }
             if isDayOff(lower) {
                 if pending != nil { results.removeLast() }
-                pending = nil; last = nil; currentDay = nil
+                pending = nil; last = nil; currentDay = nil; soft = nil
                 continue
             }
             if let i = pending {
                 results[i].name = name
                 if results[i].callTime == nil { results[i].callTime = time }
+                // "ENTIRE ARENA" fills in for now; a "TA- MARTIN LAWRENCE" line below replaces it.
+                soft = isCoded ? nil : i
                 pending = nil
+            } else if let i = soft, isCoded {
+                results[i].name = name
+                soft = nil
             } else if time != nil {
                 // Another event on the same day, listed under the date with its own time.
                 // Lines without a time ("Wear black") are notes, not events.
                 results.append(ParsedEvent(day: day, name: name, callTime: time))
                 last = results.count - 1
+                soft = nil
             }
         }
 
@@ -195,6 +210,7 @@ enum ScheduleParser {
 
     private static func clean(_ text: String, leadingWeekday: Bool, trailingWeekday: Bool) -> String {
         var t = replace(timeRemoval, in: text, with: " ")
+        t = replace(statusWords, in: t, with: " ")
         if leadingWeekday { t = replace(leadingWeekdayRegex, in: t, with: " ") }
         if trailingWeekday { t = replace(trailingWeekdayRegex, in: t, with: " ") }
         return tidy(t)
@@ -226,6 +242,29 @@ enum ScheduleParser {
         }
         if t.rangeOfCharacter(from: .letters) == nil { return "" }
         return t
+    }
+
+    /// ABI lists events as "TA- MARTIN LAWRENCE" (venue code, dash, name). Returns the name part.
+    private static func codedName(_ name: String) -> String? {
+        let ns = name as NSString
+        guard let m = coded.firstMatch(in: name, range: NSRange(location: 0, length: ns.length)) else { return nil }
+        let result = ns.substring(with: m.range(at: 1)).trimmingCharacters(in: separators)
+        return result.isEmpty ? nil : result
+    }
+
+    /// "MARTIN LAWRENCE" → "Martin Lawrence", "REIGN VS COACHELLA" → "Reign vs Coachella".
+    private static func prettify(_ name: String) -> String {
+        guard name.rangeOfCharacter(from: .lowercaseLetters) == nil else { return name }
+        return name.split(separator: " ").map { word -> String in
+            let lower = word.lowercased()
+            if lower == "vs" || lower == "vs." { return lower }
+            return lower.prefix(1).uppercased() + lower.dropFirst()
+        }.joined(separator: " ")
+    }
+
+    private static func finalName(_ name: String) -> (name: String, coded: Bool) {
+        if let c = codedName(name) { return (prettify(c), true) }
+        return (prettify(name), false)
     }
 
     private static func stripMarkdown(_ s: String) -> String {
@@ -271,9 +310,12 @@ enum ScheduleParser {
     }
 
     private static func dedupe(_ events: [ParsedEvent]) -> [ParsedEvent] {
+        // A bare date (e.g. cut off at the bottom of a screenshot) doesn't count if that day has a real event.
+        let namedDays = Set(events.filter { $0.name != "Shift" }.map { Int($0.day.timeIntervalSinceReferenceDate) })
+        let kept = events.filter { !($0.name == "Shift" && namedDays.contains(Int($0.day.timeIntervalSinceReferenceDate))) }
         var seen = Set<String>()
         var out: [ParsedEvent] = []
-        for e in events {
+        for e in kept {
             let key = "\(Int(e.day.timeIntervalSinceReferenceDate))|\(e.name.lowercased())"
             if seen.insert(key).inserted { out.append(e) }
         }
@@ -309,11 +351,19 @@ enum ScheduleParser {
     private static let spaceBeforeClose = regex(#"\s+\)"#)
     private static let spaceAfterOpen = regex(#"\(\s+"#)
     private static let multiSpace = regex(#"\s{2,}"#)
+    private static let statusWords = regex(#"\b(?:not\s+confirmed|unconfirmed|confirmed|pending|accepted|declined|tentative)\b"#)
+    // Case-sensitive on purpose: only ALL-CAPS codes like "TA-".
+    private static let coded = try! NSRegularExpression(pattern: #"(?:^|\s)[A-Z]{2,3}-\s+(\S.*)$"#)
+    private static let rule = regex(#"^\s*[-_=*]{3,}\s*$"#)
     private static let nameLabel = regex(#"^(?:event|show|artist|performer|name|title|act)\s*:\s*(.+)$"#)
 
     private static func regex(_ pattern: String) -> NSRegularExpression {
         // Fixed patterns; a bad one is a programming error caught by the tests.
         try! NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
+    }
+
+    private static func matches(_ re: NSRegularExpression, _ s: String) -> Bool {
+        re.firstMatch(in: s, range: NSRange(location: 0, length: (s as NSString).length)) != nil
     }
 
     private static func replace(_ re: NSRegularExpression, in s: String, with template: String) -> String {

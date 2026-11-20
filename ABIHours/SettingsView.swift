@@ -119,8 +119,8 @@ struct SetupGuideView: View {
             }
 
             Section {
-                GuideStep(number: 1, text: "Get the plain-text version of your schedule (the one Claude writes for you).")
-                GuideStep(number: 2, text: "In ABI Hours, tap **⋯** → **Paste schedule**, paste it, check the events it found, and tap **Save**.")
+                GuideStep(number: 1, text: "In ABI, open **Schedule** and take screenshots (scroll for the rest of the month).")
+                GuideStep(number: 2, text: "In ABI Hours, tap **⋯** → **Add schedule** → **Read schedule screenshots**, pick them, check the events it found, and tap **Save**. Pasting text works too.")
                 GuideStep(number: 3, text: "From then on, every shift is labeled with that day's event automatically.")
             } header: {
                 Text("Your schedule")

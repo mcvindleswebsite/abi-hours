@@ -1,27 +1,52 @@
+import PhotosUI
 import SwiftUI
+import UIKit
 
-/// Paste the plain-text schedule, check what was read, save.
+/// Screenshots of the ABI schedule (or pasted text) → check what was read → save.
 struct SchedulePasteView: View {
     @EnvironmentObject private var store: ShiftStore
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
     @State private var parsed: [ParsedEvent] = []
+    @State private var picks: [PhotosPickerItem] = []
+    @State private var reading = false
+    @State private var readError: String?
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
+                    PhotosPicker(selection: $picks, maxSelectionCount: 10, matching: .images) {
+                        Label("Read schedule screenshots", systemImage: "camera.viewfinder")
+                    }
+                    .disabled(reading)
+                    if reading {
+                        HStack(spacing: 10) {
+                            ProgressView()
+                            Text("Reading screenshots…").foregroundStyle(.secondary)
+                        }
+                    }
+                    if let readError {
+                        Text(readError).foregroundStyle(.orange)
+                    }
+                } header: {
+                    Text("From ABI")
+                } footer: {
+                    Text("Screenshot the Schedule screen in ABI (scroll and take more for the rest of the month), then pick them here. Everything is read on your phone.")
+                }
+
+                Section {
                     TextEditor(text: $text)
                         .font(.callout)
-                        .frame(minHeight: 180)
+                        .frame(minHeight: 140)
                     PasteButton(payloadType: String.self) { strings in
                         let pasted = strings.joined(separator: "\n")
                         DispatchQueue.main.async { text = pasted }
                     }
                 } header: {
-                    Text("Your schedule")
+                    Text("Or paste text")
                 } footer: {
-                    Text("Plain text works best, like \"Thu 11/20 — Martin Lawrence — call 5:00 PM\". Pasting days you already loaded replaces them, so you can paste an updated schedule anytime.")
+                    Text("Like \"Thu 11/20 — Martin Lawrence — call 5:00 PM\". Loading days you already have replaces them, so you can load an updated schedule anytime.")
                 }
 
                 if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -49,7 +74,7 @@ struct SchedulePasteView: View {
                     }
                 }
             }
-            .navigationTitle("Paste schedule")
+            .navigationTitle("Add schedule")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -63,6 +88,35 @@ struct SchedulePasteView: View {
             .onChange(of: text) { _, newText in
                 parsed = ScheduleParser.parse(newText)
             }
+            .onChange(of: picks) { _, items in
+                guard !items.isEmpty else { return }
+                Task { await readScreenshots(items) }
+            }
+        }
+    }
+
+    private func readScreenshots(_ items: [PhotosPickerItem]) async {
+        reading = true
+        readError = nil
+        var chunks: [String] = []
+        for item in items {
+            if let data = try? await item.loadTransferable(type: Data.self),
+               let image = UIImage(data: data)?.cgImage,
+               let found = try? await ScreenshotReader.text(from: image),
+               !found.isEmpty {
+                chunks.append(found)
+            }
+        }
+        reading = false
+        picks = []
+        if chunks.isEmpty {
+            readError = "Couldn't read any text from that. Try a screenshot of the Schedule screen."
+            return
+        }
+        // "---" tells the parser each screenshot starts fresh.
+        text = chunks.joined(separator: "\n---\n")
+        if ScheduleParser.parse(text).isEmpty {
+            readError = "Read the screenshots but didn't find any dates in them."
         }
     }
 
@@ -106,7 +160,7 @@ struct EventsView: View {
                 Button {
                     showPaste = true
                 } label: {
-                    Label("Paste schedule", systemImage: "doc.on.clipboard")
+                    Label("Add schedule", systemImage: "calendar.badge.plus")
                 }
                 Button {
                     editing = WorkEvent(day: today, name: "")
@@ -118,7 +172,7 @@ struct EventsView: View {
 
             if weeks.isEmpty {
                 Section {
-                    Text("No events yet. Paste the plain-text schedule Claude made you.")
+                    Text("No events yet. Add screenshots of your ABI schedule.")
                         .foregroundStyle(.secondary)
                 }
             }

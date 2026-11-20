@@ -35,6 +35,10 @@ EMPTY_BRACKETS = re.compile(r"[(\[]\s*[)\]]", I)
 SPACE_BEFORE_CLOSE = re.compile(r"\s+\)", I)
 SPACE_AFTER_OPEN = re.compile(r"\(\s+", I)
 MULTI_SPACE = re.compile(r"\s{2,}", I)
+STATUS_WORDS = re.compile(r"\b(?:not\s+confirmed|unconfirmed|confirmed|pending|accepted|declined|tentative)\b", I)
+# ABI prints events as "TA- MARTIN LAWRENCE" (venue code, dash, name). Case-sensitive on purpose.
+CODED = re.compile(r"(?:^|\s)[A-Z]{2,3}-\s+(\S.*)$")
+RULE = re.compile(r"^\s*[-_=*]{3,}\s*$")
 NAME_LABEL = re.compile(r"^(?:event|show|artist|performer|name|title|act)\s*:\s*(.+)$", I)
 
 SEPS = " \t-–—:|,;·•*_#>~=/\n\r "
@@ -129,11 +133,34 @@ def tidy(s):
 
 def clean(text, leading, trailing):
     t = TIME_REMOVAL.sub(" ", text)
+    t = STATUS_WORDS.sub(" ", t)
     if leading:
         t = LEADING_WD.sub(" ", t)
     if trailing:
         t = TRAILING_WD.sub(" ", t)
     return tidy(t)
+
+
+def coded_name(name):
+    m = CODED.search(name)
+    return m.group(1).strip(SEPS) if m else None
+
+
+def prettify(name):
+    """MARTIN LAWRENCE -> Martin Lawrence, REIGN VS COACHELLA -> Reign vs Coachella."""
+    if any(c.islower() for c in name):
+        return name
+    words = []
+    for w in name.split():
+        lw = w.lower()
+        words.append(lw if lw in ("vs", "vs.") else lw[:1].upper() + lw[1:])
+    return " ".join(words)
+
+
+def final_name(name):
+    """Returns (name, came_from_code)."""
+    c = coded_name(name)
+    return (prettify(c), True) if c else (prettify(name), False)
 
 
 def strip_markdown(s):
@@ -156,8 +183,11 @@ def is_note(lower):
 
 def parse(text, today):
     results = []  # [day, name, time]
-    current_day = pending = last = None
+    current_day = pending = last = soft = None
     for raw in text.splitlines():
+        if RULE.match(raw):  # "---" between screenshots or sections: start fresh
+            current_day = pending = last = soft = None
+            continue
         line = strip_markdown(raw)
         if not line.strip():
             continue
@@ -174,8 +204,10 @@ def parse(text, today):
             shared = " ".join(n for n in [prefix_name] + seg_names if n)
             sl = shared.lower()
             if not per_date and (is_header(sl) or (len(hits) > 1 and not shared) or sl in DAY_OFF):
-                current_day = pending = last = None
+                current_day = pending = last = soft = None
                 continue
+            shared, shared_coded = final_name(shared)
+            seg_names = [final_name(n)[0] for n in seg_names]
             for i, (s, e, d) in enumerate(hits):
                 name = seg_names[i] if per_date else shared
                 src = segments[i] if per_date else prefix + " " + " ".join(segments)
@@ -183,11 +215,13 @@ def parse(text, today):
             current_day = hits[0][2] if len(hits) == 1 else None
             last = len(results) - 1
             pending = last if (len(hits) == 1 and not shared) else None
+            # a plain name here can still be replaced by a "TA- NAME" line under it
+            soft = last if (len(hits) == 1 and shared and not shared_coded) else None
             continue
         if current_day is None:
             continue
         t = first_time(line, current_day)
-        name = clean(line, False, False)
+        name, is_coded = final_name(clean(line, False, False))
         if not name:
             if t and last is not None and results[last][2] is None:
                 results[last][2] = t
@@ -198,19 +232,26 @@ def parse(text, today):
         if lower in DAY_OFF:
             if pending is not None:
                 results.pop()
-            pending = last = current_day = None
+            pending = last = current_day = soft = None
             continue
         if pending is not None:
             results[pending][1] = name
             if results[pending][2] is None:
                 results[pending][2] = t
+            soft = None if is_coded else pending  # e.g. "ENTIRE ARENA" until "TA- ..." shows up
             pending = None
+        elif soft is not None and is_coded:
+            results[soft][1] = name
+            soft = None
         elif t:
             results.append([current_day, name, t])
             last = len(results) - 1
+            soft = None
     for r in results:
         if not r[1]:
             r[1] = "Shift"
+    named_days = {d for d, n, t in results if n != "Shift"}
+    results = [r for r in results if not (r[1] == "Shift" and r[0] in named_days)]
     seen, out = set(), []
     for d, n, t in results:
         k = (d, n.lower())
@@ -288,6 +329,68 @@ Sun 11/23 | Harlem Globetrotters | Call 12:30 PM""",
     "per-date on one line": (
         "Fri 11/20: Martin Lawrence, Fri 11/21: Ontario Reign",
         ["Fri 11/20 | Martin Lawrence | -", "Sat 11/21 | Ontario Reign | -"],
+    ),
+    "ABI ESS screenshot (read by OCR)": (
+        """7:49
+Schedule
+View
+Confirm
+Accept Dates
+Thursday, November 19, 2026
+10:00am - 5:00pm
+Confirmed
+ENTIRE ARENA
+TA- MARTIN PREP DAY
+Friday, November 20, 2026
+4:30pm - 12:00pm
+Confirmed
+ENTIRE ARENA
+TA- MARTIN LAWRENCE
+Saturday, November 21, 2026
+2:30pm - 8:30pm
+Confirmed
+ENTIRE ARENA
+TA- REIGN VS COACHELLA
+Sunday, November 22, 2026
+12:30pm - 6:30pm
+ENTIRE ARENA
+Confirmed
+TA- REIGN VS HENDERSON
+Department Notes
+If you have any conflicts with the days that you have been
+scheduled, please contact your manager immediately so
+they can try to accomodate. Be advised that all schedule
+conflicts may not be accomodated due to business
+needs.Thanks you
+Home
+Schedule
+Availability
+Time
+More""",
+        ["Thu 11/19 | Martin Prep Day | 10:00 AM",
+         "Fri 11/20 | Martin Lawrence | 04:30 PM",
+         "Sat 11/21 | Reign vs Coachella | 02:30 PM",
+         "Sun 11/22 | Reign vs Henderson | 12:30 PM"],
+    ),
+    "ABI card copied as one line": (
+        "Friday, November 20, 2026 4:30pm - 12:00pm ENTIRE ARENA TA- MARTIN LAWRENCE Confirmed",
+        ["Fri 11/20 | Martin Lawrence | 04:30 PM"],
+    ),
+    "two screenshots, card cut at the bottom of the first": (
+        """Friday, November 20, 2026
+4:30pm - 12:00pm
+ENTIRE ARENA
+TA- MARTIN LAWRENCE
+Saturday, November 21, 2026
+---
+7:49
+Schedule
+Saturday, November 21, 2026
+2:30pm - 8:30pm
+ENTIRE ARENA
+TA- REIGN VS COACHELLA""",
+        ["Fri 11/20 | Martin Lawrence | 04:30 PM",
+         "Sat 11/21 | Reign vs Coachella | 02:30 PM"],
     ),
     "date only, no name": (
         "Tue 11/24 5:00 PM\nTue 11/25 — Check in: 4:30 PM",

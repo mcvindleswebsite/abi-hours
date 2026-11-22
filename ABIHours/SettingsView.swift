@@ -105,9 +105,9 @@ struct SetupGuideView: View {
                 GuideStep(number: 2, text: "Open **Shortcuts** → **Automation** → **+** → **NFC** → **Scan**, and hold the top of your phone to the sticker. Name it \"Work badge\".")
                 GuideStep(number: 3, text: "Choose **Run Immediately** and turn off **Notify When Run**.")
                 GuideStep(number: 4, text: "Tap **Create New Shortcut** (or **New Blank Automation**), add an action, search **ABI Hours**, and pick **Clock In/Out**.")
-                GuideStep(number: 5, text: "At work: scan your ID at the ABI scanner, then tap your phone to the sticker. Same thing when you leave.")
+                GuideStep(number: 5, text: "You're clocked in automatically at your scheduled start from ABI, so there's nothing to tap when you arrive. When you leave, scan out at ABI, then tap your phone to the sticker.")
             } header: {
-                Text("Badge sticker → clock in/out")
+                Text("Badge sticker → clock out")
             }
 
             Section {
@@ -121,14 +121,15 @@ struct SetupGuideView: View {
             Section {
                 GuideStep(number: 1, text: "In ABI, open **Schedule** and take screenshots (scroll for the rest of the month).")
                 GuideStep(number: 2, text: "In ABI Hours, tap **⋯** → **Add schedule** → **Read schedule screenshots**, pick them, check the events it found, and tap **Save**. Pasting text works too.")
-                GuideStep(number: 3, text: "From then on, every shift is labeled with that day's event automatically.")
+                GuideStep(number: 3, text: "From then on you're clocked in at each event's start time on your own, and every shift is labeled with its event. Called off? Open the event under **⋯** → **Schedule** and turn on **Not working this one**.")
             } header: {
                 Text("Your schedule")
             }
 
             Section {
                 Text("If ABI Hours doesn't show up in Shortcuts, open the app once and try again.")
-                Text("A second tap within 10 seconds is ignored, so bumping the sticker won't clock you back out.")
+                Text("Tapped out by mistake? Tap the sticker again within 15 minutes to undo it. (A second tap within 10 seconds is ignored.)")
+                Text("On a day with nothing scheduled, the sticker clocks you in, and the next tap clocks you out.")
                 Text("Forgot to clock out? After 16 hours the shift is flagged. Tap it to set the real time.")
                 Text("Using a Focus at work? Allow ABI Hours in it so lunch reminders come through.")
             } header: {

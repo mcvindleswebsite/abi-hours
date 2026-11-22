@@ -15,6 +15,14 @@ enum Fmt {
         d.formatted(.dateTime.weekday(.abbreviated).month(.defaultDigits).day())
     }
 
+    /// "4:30 PM" today, "tomorrow 12:30 PM", otherwise "Sat 12:30 PM".
+    static func when(_ d: Date) -> String {
+        let cal = Calendar.current
+        if cal.isDateInToday(d) { return time(d) }
+        if cal.isDateInTomorrow(d) { return "tomorrow \(time(d))" }
+        return "\(d.formatted(.dateTime.weekday(.abbreviated))) \(time(d))"
+    }
+
     /// "6h 12m"
     static func duration(_ seconds: TimeInterval) -> String {
         let total = max(0, Int(seconds / 60))

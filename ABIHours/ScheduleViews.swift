@@ -122,7 +122,7 @@ struct SchedulePasteView: View {
 
     private func subtitle(_ event: ParsedEvent) -> String {
         var s = Fmt.day(event.day)
-        if let t = event.callTime { s += " · call \(Fmt.time(t))" }
+        if let t = event.callTime { s += " · starts \(Fmt.time(t))" }
         return s
     }
 
@@ -236,7 +236,8 @@ struct EventRow: View {
 
     private var subtitle: String {
         var s = Fmt.day(event.day)
-        if let t = event.callTime { s += " · call \(Fmt.time(t))" }
+        if let t = event.callTime { s += " · starts \(Fmt.time(t))" }
+        if event.skipped { s += " · not working" }
         return s
     }
 }
@@ -260,10 +261,17 @@ struct EventEditView: View {
                 Section {
                     TextField("Event name", text: $draft.name)
                     DatePicker("Date", selection: $draft.day, displayedComponents: .date)
-                    Toggle("Call time", isOn: $hasCallTime)
+                    Toggle("Start time", isOn: $hasCallTime)
                     if hasCallTime {
-                        DatePicker("Time", selection: callBinding, displayedComponents: .hourAndMinute)
+                        DatePicker("Starts", selection: callBinding, displayedComponents: .hourAndMinute)
                     }
+                } footer: {
+                    Text("You're clocked in automatically at the start time.")
+                }
+                Section {
+                    Toggle("Not working this one", isOn: $draft.skipped)
+                } footer: {
+                    Text("Turn on if you got called off, so it doesn't clock you in.")
                 }
                 if exists {
                     Section {

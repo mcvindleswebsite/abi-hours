@@ -2,7 +2,8 @@
 
 Tracks your hours at work without ever opening the app. Shows up right next to ABI when you search "abi".
 
-- **Clock in/out:** scan your ID at the ABI scanner, then tap your phone to the NFC sticker on the back of your ID. It runs in the background: just a quick "Clocked in for Martin Lawrence · 4:02 PM" banner, no timer on screen. Tap again when you leave.
+- **Clock in:** automatic. At each event's scheduled start from your ABI schedule (e.g. 4:30 PM), you're on the clock without tapping anything, and the in-app timer is already running.
+- **Clock out:** scan out at ABI, then tap your phone to the NFC sticker on the back of your ID. It runs in the background: just a quick "Clocked out of Martin Lawrence · 6h 12m" banner. Tap again within 15 minutes to undo. On a day with nothing scheduled, the sticker clocks you in and then out.
 - **Lunch:** press and hold the Action button (about a second). You get a heads-up 5 minutes before lunch ends and a reminder at 30, both with an **End lunch** button. Press again to end lunch.
 - **Schedule:** ⋯ → Add schedule → pick screenshots of ABI's Schedule screen (read on the phone, no Claude step needed), or paste text. Every shift gets labeled with that day's event automatically ("TA- MARTIN LAWRENCE" → "Martin Lawrence"). The main screen goes **week → events → your hours for each event**.
 
@@ -18,7 +19,7 @@ Tracks your hours at work without ever opening the app. Shows up right next to A
 
 ## Setup on the phone
 
-**Badge sticker → Clock In/Out**
+**Badge sticker → clock out** (the action is still called Clock In/Out)
 1. Stick an NFC sticker (NTAG213 or NTAG215) on the back of your ID. Nothing needs to be written to it.
 2. Shortcuts → Automation → + → NFC → Scan → hold the top of the phone to the sticker → name it "Work badge".
 3. Choose **Run Immediately**, turn off **Notify When Run**.
@@ -51,7 +52,9 @@ Headers ("Week of 11/17"), days off ("OFF") and note lines ("Wear black", "Posit
 
 ## Safety nets
 
-- A second sticker tap within 10 seconds is ignored, so a bump won't clock you back out.
+- A second sticker tap within 10 seconds is ignored; a tap within 15 minutes of clocking out undoes it.
+- Tapping before your shift starts does nothing except tell you when it starts.
+- Called off? Mark the event "Not working this one" (or delete its automatic shift) so it doesn't clock you in.
 - A shift left open for 16 hours is flagged "Missing clock-out". Tap it to set the real time; your next tap starts a fresh shift.
 - Any shift can be edited (times, lunches, which event it belongs to) or added by hand. ⋯ → Export CSV backs everything up.
 - Everything is stored on the phone only.

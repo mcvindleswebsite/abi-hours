@@ -14,7 +14,7 @@ struct ABIHoursApp: App {
                 .environmentObject(store)
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { store.closeStaleShifts() }
+            if phase == .active { store.refresh() }
         }
     }
 }

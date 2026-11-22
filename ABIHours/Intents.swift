@@ -4,7 +4,7 @@ import UserNotifications
 /// Runs in the background (never opens the app). Hook it to the NFC sticker in Shortcuts.
 struct ToggleShiftIntent: AppIntent {
     static var title: LocalizedStringResource = "Clock In/Out"
-    static var description = IntentDescription("Clocks you in if you're off the clock, or out if you're on. Runs in the background.")
+    static var description = IntentDescription("Clocks you out (you're clocked in automatically at your scheduled start). On a day with nothing scheduled it clocks you in. Runs in the background.")
     static var authenticationPolicy: IntentAuthenticationPolicy = .alwaysAllowed
 
     @MainActor

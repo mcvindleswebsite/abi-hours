@@ -61,8 +61,84 @@ final class ShiftStore: ObservableObject {
     }
 
     func deleteShift(id: UUID) {
+        // Deleting a shift that started on its own means you didn't work that event,
+        // so don't start it again.
+        if let s = shifts.first(where: { $0.id == id }), s.autoStarted, let eventID = s.eventID,
+           let i = events.firstIndex(where: { $0.id == eventID }) {
+            events[i].skipped = true
+            saveEvents()
+        }
         shifts.removeAll { $0.id == id }
         saveShifts()
+    }
+
+    /// Run before anything reads the current state: flags forgotten clock-outs, then starts scheduled shifts.
+    func refresh(now: Date = Date()) {
+        closeStaleShifts(now: now)
+        startScheduledShifts(now: now)
+    }
+
+    /// You're clocked in at the scheduled start from ABI without tapping anything.
+    /// The shift is created the next time the app or the sticker/Action button runs,
+    /// with its start set to the scheduled time, so it doesn't matter when that is.
+    func startScheduledShifts(now: Date = Date()) {
+        let weekAgo = now.addingTimeInterval(-7 * 86_400)
+        let due = events
+            .filter { e in
+                guard let start = e.callTime else { return false }
+                return !e.skipped && start <= now && start >= weekAgo
+            }
+            .sorted { $0.sortDate < $1.sortDate }
+
+        var changed = false
+        for e in due {
+            guard let start = e.callTime else { continue }
+            if hasShift(e, start: start, now: now) { continue }
+
+            if now.timeIntervalSince(start) <= ClockActions.staleAfter {
+                // Normal case: start the shift. Skip events loaded after they'd already started.
+                guard (e.addedAt ?? .distantPast) < start, openShift == nil else { continue }
+                shifts.append(Shift(start: start, eventID: e.id, autoStarted: true))
+            } else {
+                // Long past and never clocked out: keep a record and flag it so you can fill in the time.
+                guard let added = e.addedAt, added < start else { continue }
+                shifts.append(Shift(start: start, end: start, missingClockOut: true, eventID: e.id, autoStarted: true))
+            }
+            changed = true
+        }
+        if changed {
+            shifts.sort { $0.start < $1.start }
+            saveShifts()
+        }
+    }
+
+    /// True if the event already has a shift (tapped in, added by hand, started earlier),
+    /// or a shift was already running at its start (two events back to back).
+    private func hasShift(_ e: WorkEvent, start: Date, now: Date) -> Bool {
+        shifts.contains(where: { event(for: $0)?.id == e.id })
+            || shifts.contains(where: { $0.start <= start && ($0.end ?? now) >= start })
+    }
+
+    /// An event that has already started (within the last 16 hours) but has no shift,
+    /// e.g. the schedule was loaded after it started.
+    func startedEventWithoutShift(now: Date) -> WorkEvent? {
+        events
+            .filter { e in
+                guard let start = e.callTime, !e.skipped, start <= now,
+                      now.timeIntervalSince(start) <= ClockActions.staleAfter else { return false }
+                return !hasShift(e, start: start, now: now)
+            }
+            .max { $0.sortDate < $1.sortDate }
+    }
+
+    /// Next scheduled start within `window`, e.g. to answer an early sticker tap.
+    func upcomingEvent(after now: Date, within window: TimeInterval) -> WorkEvent? {
+        events
+            .filter { e in
+                guard let start = e.callTime else { return false }
+                return !e.skipped && start > now && start <= now.addingTimeInterval(window)
+            }
+            .min { $0.sortDate < $1.sortDate }
     }
 
     /// A shift still open after 16 hours means you forgot to tap out. It gets flagged so you can fix it,
@@ -111,7 +187,7 @@ final class ShiftStore: ObservableObject {
         let today = Calendar.current.startOfDay(for: now)
         let worked = Set(shifts.compactMap { event(for: $0)?.id })
         return events
-            .filter { $0.day >= today && !worked.contains($0.id) }
+            .filter { $0.day >= today && !$0.skipped && !worked.contains($0.id) }
             .min { $0.sortDate < $1.sortDate }
     }
 
@@ -122,13 +198,18 @@ final class ShiftStore: ObservableObject {
         let days = Set(incoming.map { cal.startOfDay(for: $0.day) })
         let replaced = events.filter { days.contains(cal.startOfDay(for: $0.day)) }
         var result = events.filter { !days.contains(cal.startOfDay(for: $0.day)) }
+        let now = Date()
         for var e in incoming {
             e.day = cal.startOfDay(for: e.day)
-            // Keep the same ID for the same event so shifts you linked by hand stay linked.
+            // Keep the same ID for the same event so shifts linked to it stay linked.
             if let old = replaced.first(where: {
                 cal.isDate($0.day, inSameDayAs: e.day) && $0.name.caseInsensitiveCompare(e.name) == .orderedSame
             }) {
                 e.id = old.id
+                e.addedAt = old.addedAt ?? now
+                e.skipped = old.skipped
+            } else {
+                e.addedAt = now
             }
             result.append(e)
         }
@@ -137,10 +218,13 @@ final class ShiftStore: ObservableObject {
     }
 
     func addOrUpdateEvent(_ event: WorkEvent) {
-        if let i = events.firstIndex(where: { $0.id == event.id }) {
-            events[i] = event
+        var e = event
+        if let i = events.firstIndex(where: { $0.id == e.id }) {
+            if e.addedAt == nil { e.addedAt = events[i].addedAt ?? Date() }
+            events[i] = e
         } else {
-            events.append(event)
+            if e.addedAt == nil { e.addedAt = Date() }
+            events.append(e)
         }
         events.sort { $0.sortDate < $1.sortDate }
         saveEvents()

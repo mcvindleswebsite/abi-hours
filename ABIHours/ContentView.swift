@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 
 enum ActiveSheet: Identifiable {
@@ -23,6 +24,8 @@ struct ContentView: View {
     @AppStorage(Weeks.startDayKey) private var weekStart = 2
     @State private var sheet: ActiveSheet?
     @State private var expanded: Set<Date> = [Weeks.week(containing: Date()).start]
+    /// While the app is open, starts a scheduled shift right at its start time.
+    private let tick = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
 
     var body: some View {
         NavigationStack {
@@ -37,7 +40,10 @@ struct ContentView: View {
         }
         .onAppear {
             Notifier.requestPermission()
-            store.closeStaleShifts()
+            store.refresh()
+        }
+        .onReceive(tick) { _ in
+            store.refresh()
         }
         .onChange(of: weekStart) { _, _ in
             expanded = [Weeks.week(containing: Date()).start]
@@ -59,11 +65,18 @@ struct ContentView: View {
         List {
             Section {
                 StatusHeader(now: now)
-                Button {
-                    _ = ClockActions.toggleShift()
-                } label: {
-                    Label(store.openShift == nil ? "Clock in" : "Clock out",
-                          systemImage: store.openShift == nil ? "play.circle.fill" : "stop.circle.fill")
+                if store.openShift != nil {
+                    Button {
+                        _ = ClockActions.clockOutNow()
+                    } label: {
+                        Label("Clock out", systemImage: "stop.circle.fill")
+                    }
+                } else {
+                    Button {
+                        _ = ClockActions.clockInNow()
+                    } label: {
+                        Label(clockInLabel(now: now), systemImage: "play.circle.fill")
+                    }
                 }
                 Button {
                     _ = ClockActions.toggleLunch()
@@ -72,7 +85,7 @@ struct ContentView: View {
                 }
                 .disabled(store.openShift == nil)
             } footer: {
-                Text("You don't need to open the app. Tap your badge sticker to clock in or out, and press the Action button for lunch.")
+                Text("You're clocked in automatically at your scheduled start from ABI. Tap your badge sticker when you clock out, and press the Action button for lunch.")
             }
 
             Section("This week") {
@@ -156,6 +169,13 @@ struct ContentView: View {
         }
     }
 
+    private func clockInLabel(now: Date) -> String {
+        if let event = store.startedEventWithoutShift(now: now), let start = event.callTime {
+            return "Clock in from \(Fmt.time(start))"
+        }
+        return "Clock in now"
+    }
+
     private func expandedBinding(_ weekStart: Date) -> Binding<Bool> {
         Binding(
             get: { expanded.contains(weekStart) },
@@ -187,7 +207,7 @@ struct StatusHeader: View {
                     Label(eventName.map { "Clocked in · \($0)" } ?? "Clocked in", systemImage: "checkmark.circle.fill")
                         .font(.headline)
                         .foregroundStyle(.green)
-                    Text("Since \(Fmt.time(shift.start)) · \(Fmt.duration(shift.workedSeconds(now: now))) so far")
+                    Text("Since \(Fmt.time(shift.start))\(shift.autoStarted ? " (scheduled)" : "") · \(Fmt.duration(shift.workedSeconds(now: now))) so far")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -206,11 +226,16 @@ struct StatusHeader: View {
     }
 
     private func nextLine(_ event: WorkEvent) -> String {
-        let call = event.callTime.map { " · call \(Fmt.time($0))" } ?? ""
         if Calendar.current.isDateInToday(event.day) {
-            return "Today: \(event.name)\(call)"
+            if let start = event.callTime {
+                return start > now
+                    ? "Today: \(event.name) · clocks you in at \(Fmt.time(start))"
+                    : "Today: \(event.name) · started \(Fmt.time(start))"
+            }
+            return "Today: \(event.name)"
         }
-        return "Next: \(Fmt.day(event.day)) · \(event.name)\(call)"
+        let start = event.callTime.map { " · starts \(Fmt.time($0))" } ?? ""
+        return "Next: \(Fmt.day(event.day)) · \(event.name)\(start)"
     }
 }
 
@@ -301,14 +326,18 @@ struct EventDisclosure: View {
 
     private var subtitle: String {
         var text = Fmt.day(item.day)
-        if let call = item.event?.callTime {
-            text += " · call \(Fmt.time(call))"
+        if let start = item.event?.callTime {
+            text += " · starts \(Fmt.time(start))"
         }
         return text
     }
 
     private var emptyText: String {
-        if Calendar.current.isDateInToday(item.day) { return "Not clocked in yet" }
+        if item.event?.skipped == true { return "Not working this one" }
+        if let start = item.event?.callTime, start > now {
+            return Calendar.current.isDateInToday(start) ? "Clocks you in at \(Fmt.time(start))" : "Upcoming"
+        }
+        if Calendar.current.isDateInToday(item.day) { return "Not clocked in" }
         return item.day > now ? "Upcoming" : "No hours logged"
     }
 }
@@ -325,8 +354,8 @@ struct ShiftRow: View {
                     Label("Missing clock-out · tap to fix", systemImage: "exclamationmark.triangle.fill")
                         .font(.caption)
                         .foregroundStyle(.orange)
-                } else if shift.lunchSeconds(now: now) > 0 {
-                    Text("Lunch \(Fmt.duration(shift.lunchSeconds(now: now)))")
+                } else if !caption.isEmpty {
+                    Text(caption)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -336,6 +365,14 @@ struct ShiftRow: View {
                 .font(.subheadline.monospacedDigit())
                 .foregroundStyle(.secondary)
         }
+    }
+
+    private var caption: String {
+        var parts: [String] = []
+        if shift.autoStarted { parts.append("Scheduled start") }
+        let lunch = shift.lunchSeconds(now: now)
+        if lunch > 0 { parts.append("Lunch \(Fmt.duration(lunch))") }
+        return parts.joined(separator: " · ")
     }
 
     private var timeRange: String {
